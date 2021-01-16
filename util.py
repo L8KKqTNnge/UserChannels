@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from dotenv import load_dotenv
 import os
 import json
@@ -35,3 +36,27 @@ def delete_sub(user_id):
         db.update(con)
     else:
         print("Warning: user to delete was not found!")
+
+
+async def notify_failure(client, channel_id):
+    await client.send_message(
+        channel_id,
+        "<bot info> (not broadcasted)\n"
+        "This message is too old and I do not have its references!",
+    )
+
+
+def validate_for_broadcast(event):
+    return event.is_channel and "<bot info>" not in event.message.raw_text
+
+
+class BoundedOrderedDict(OrderedDict):
+    def __init__(self, maxsize=100):
+        super(OrderedDict, self).__init__()
+        self.maxsize = maxsize
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        if len(self) > self.maxsize:
+            oldest = next(iter(self))
+            del self[oldest]
