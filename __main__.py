@@ -19,7 +19,6 @@ logging.basicConfig(
 
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
-CHANNEL_TITLE = "testingchannel"
 
 client = TelegramClient("anon", API_ID, API_HASH)
 
@@ -27,9 +26,9 @@ client = TelegramClient("anon", API_ID, API_HASH)
 # max_calls is number of outgoing messages / updates
 # period is in seconds
 # sweet spot is 15-20 / 1
-limiter = ratelimiter.RateLimiter(max_calls=10, period=1)
+limiter = ratelimiter.RateLimiter(max_calls=1, period=3)
 temp_storage = {
-    "recently_deleted": deque(maxlen=300),
+    "recently_deleted": deque(maxlen=100),
     "recently_updated": BoundedOrderedDict(100),
     "broadcast_in_process": BoundedOrderedDict(10),
 }
@@ -45,11 +44,15 @@ if not os.path.exists("./db.json"):
     backoff.expo, errors.FloodError, max_tries=100, jitter=backoff.random_jitter
 )
 async def send_ratelim(user_id, message, is_album=False):
-    with limiter:
+    global temp_storage
+    async with limiter:
         try:
-            if not is_album and not isinstance(message, str) and message.id in temp_storage["recently_deleted"]:
-                return []  # send nothing and return nothing
             if not is_album:
+                if (
+                    not isinstance(message, str)
+                    and message.id in temp_storage["recently_deleted"]
+                ):
+                    return []  # send nothing and return nothing
                 message = await client.send_message(user_id, message)
                 ids = [message.id]
             else:
@@ -73,7 +76,7 @@ async def send_ratelim(user_id, message, is_album=False):
     backoff.expo, errors.FloodError, max_tries=100, jitter=backoff.random_jitter
 )
 async def delete_ratelim(user_id, user_message_id):
-    with limiter:
+    async with limiter:
         try:
             if not isinstance(user_id, int):
                 user_id = int(user_id)
@@ -86,7 +89,8 @@ async def delete_ratelim(user_id, user_message_id):
     backoff.expo, errors.FloodError, max_tries=100, jitter=backoff.random_jitter
 )
 async def edit_ratelim(user_id, user_message_id, channel_message_id, text_raw):
-    with limiter:
+    global temp_storage
+    async with limiter:
         try:
             if not isinstance(user_id, int):
                 user_id = int(user_id)
@@ -101,47 +105,47 @@ async def edit_ratelim(user_id, user_message_id, channel_message_id, text_raw):
 
 
 async def broadcast(message, is_album=False):
+    global temp_storage
     con = db.get()
     ids_in_user_chat = {}
     if not is_album:
-        channel_message_id = message.id
-        temp_storage["broadcast_in_process"][channel_message_id] = dict()
+        channel_message_ids = [message.id]
     else:
         channel_message_ids = [m.id for m in message.messages]
-        for i in channel_message_ids:
-            temp_storage["broadcast_in_process"][i] = dict()
+    for i in channel_message_ids:
+        temp_storage["broadcast_in_process"][i] = dict()
     for chat_id in con["subs"]:
-        user_message_id = await send_ratelim(chat_id, message, is_album)
-        ids_in_user_chat[chat_id] = user_message_id
-        if not is_album:
-            temp_storage["broadcast_in_process"][channel_message_id][
-                chat_id
-            ] = user_message_id
-        else:
-            for i in channel_message_ids:
-                temp_storage["broadcast_in_process"][i][chat_id] = user_message_id
+        user_message_ids = await send_ratelim(chat_id, message, is_album)
+        ids_in_user_chat[chat_id] = user_message_ids
+
+        for i in channel_message_ids:
+            temp_storage["broadcast_in_process"][i][chat_id] = user_message_ids
+
+    for i in channel_message_ids:
+        del temp_storage["broadcast_in_process"][i]
     return ids_in_user_chat
 
 
 @client.on(
     events.NewMessage(
-        func=lambda m: validate_for_broadcast(m) and m.chat.title == CHANNEL_TITLE
+        func=validate_for_broadcast
     )
 )
 async def new_channel_handeler(event):
+    print("Broadcasting!!1")
     con = db.get()
     if event.message.grouped_id is not None:
         return  # this is an album
 
     channel_message_id = event.message.id
     ids_in_user_chat = await broadcast(event.message)
-    post_ids = {k: v[0] for k, v in ids_in_user_chat.items()}
+    post_ids = {k: v[0] for k, v in ids_in_user_chat.items() if v}
     con["recent_messages"].insert(0, [channel_message_id, post_ids])
     con["recent_messages"] = con["recent_messages"][: con["recent_size"]]
     db.update(con)
 
 
-@client.on(events.Album(func=lambda m: m.is_channel and m.chat.title == CHANNEL_TITLE))
+@client.on(events.Album(func=validate_for_broadcast))
 async def album_channel_handeler(event):
     con = db.get()
     ids_in_user_chat = await broadcast(event, is_album=True)
@@ -152,20 +156,27 @@ async def album_channel_handeler(event):
     db.update(con)
 
 
-@client.on(events.MessageDeleted(func=lambda m: m.is_channel))
+@client.on(events.MessageDeleted(func=validate_for_broadcast))
 async def delete_channel_handler(event):
+    print("deleting!!!")
+    global temp_storage
     con = db.get()
     for message_id in event.deleted_ids:
         if message_id in temp_storage["recently_deleted"]:
             continue
+        else:
+            temp_storage["recently_deleted"].append(message_id)
+        if message_id in temp_storage["broadcast_in_process"]:
+            delete_target = temp_storage["broadcast_in_process"]
+        else:
+            delete_target = con["recent_messages"]
         message = list(filter(lambda m: m[0] == message_id, con["recent_messages"]))
         if not message:
             await notify_failure(client, event.original_update.channel_id)
             continue
         _, recipiants = message[0]
-        for chat_id, message_in_chat_id in recipiants.items():
-            await delete_ratelim(chat_id, message_in_chat_id)
-        temp_storage["recently_deleted"].append(message_id)
+        for user_id, user_message_id in recipiants.items():
+            await delete_ratelim(user_id, user_message_id)
         con["recent_messages"] = list(
             filter(lambda m: m[0] != message_id, con["recent_messages"])
         )
@@ -173,9 +184,10 @@ async def delete_channel_handler(event):
 
 
 @client.on(
-    events.MessageEdited(func=lambda m: m.is_channel and m.chat.title == CHANNEL_TITLE)
+    events.MessageEdited(func=validate_for_broadcast)
 )
 async def edit_channel_handler(event):
+    global temp_storage
     print(event.stringify())
     con = db.get()
     message_id = event.message.id
@@ -208,6 +220,7 @@ async def start_handler(event):
         con["subs"].append(user_id)
         await send_ratelim(
             user_id, "You are now subbed to this channel! Send /stop to unsubscribe"
+            "Warning: do not add me to your contacts and do not share your phone number with me"
         )
         db.update(con)
     else:
@@ -221,7 +234,6 @@ async def stop_handler(event):
     await send_ratelim(
         user_id, "Farawell! If you want to sub back, write /start to start again"
     )
-
 
 client.start()
 client.run_until_disconnected()

@@ -3,8 +3,11 @@ from dotenv import load_dotenv
 import os
 import json
 from threading import RLock
+import fcntl
 
 load_dotenv()
+
+CHANNEL_ID = os.getenv("CHANNEL_ID")
 
 
 class DB:
@@ -15,15 +18,23 @@ class DB:
     def get(self):
         with self.lock:
             with open(self.path, "r") as f:
-                return json.load(f)
+                fcntl.flock(f, fcntl.LOCK_EX)
+                contents = json.load(f)
+                fcntl.flock(f, fcntl.LOCK_UN)
+                return contents
+
 
     def update(self, val):
         with self.lock:
             with open(self.path, "r") as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
                 base = json.load(f)
                 base.update(val)
+                fcntl.flock(f, fcntl.LOCK_UN)
             with open(self.path, "w") as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
                 json.dump(base, f)
+                fcntl.flock(f, fcntl.LOCK_UN)
 
 
 db = DB()
@@ -47,8 +58,14 @@ async def notify_failure(client, channel_id):
 
 
 def validate_for_broadcast(event):
+    if CHANNEL_ID and event.chat and event.chat.id != CHANNEL_ID:
+        return False
+    if event.message.raw_text and event.message.raw_text[0] == "/":
+        return False
     return event.is_channel and "<bot info>" not in event.message.raw_text
 
+def bot_channel_command(event):
+    return (not validate_for_broadcast(event)) and event.is_channel
 
 class BoundedOrderedDict(OrderedDict):
     def __init__(self, maxsize=100):
