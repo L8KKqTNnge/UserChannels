@@ -7,7 +7,7 @@ import fcntl
 
 load_dotenv()
 
-CHANNEL_ID = os.getenv("CHANNEL_ID")
+CHANNEL_NAME = os.getenv("CHANNEL_NAME")
 
 
 class DB:
@@ -22,7 +22,6 @@ class DB:
                 contents = json.load(f)
                 fcntl.flock(f, fcntl.LOCK_UN)
                 return contents
-
 
     def update(self, val):
         with self.lock:
@@ -50,6 +49,7 @@ def delete_sub(user_id):
 
 
 async def notify_failure(client, channel_id):
+    print("failed to send", channel_id)
     await client.send_message(
         channel_id,
         "<bot info> (not broadcasted)\n"
@@ -58,14 +58,16 @@ async def notify_failure(client, channel_id):
 
 
 def validate_for_broadcast(event):
-    if CHANNEL_ID and event.chat and event.chat.id != CHANNEL_ID:
+    if CHANNEL_NAME and event.chat and event.chat.title != CHANNEL_NAME:
         return False
     if event.message.raw_text and event.message.raw_text[0] == "/":
         return False
     return event.is_channel and "<bot info>" not in event.message.raw_text
 
+
 def bot_channel_command(event):
-    return (not validate_for_broadcast(event)) and event.is_channel
+    return not validate_for_broadcast(event) and event.is_channel
+
 
 class BoundedOrderedDict(OrderedDict):
     def __init__(self, maxsize=100):

@@ -1,12 +1,12 @@
-from telethon import TelegramClient, events, errors
+from telethon import TelegramClient, events, errors, hints
 from dotenv import load_dotenv
 import os
 import shutil
 import ratelimiter
 import backoff
-from telethon.errors.rpcerrorlist import ChannelInvalidError
 from util import *
 from collections import deque
+import pprint
 
 load_dotenv()
 # todo: check recently deleted before sending!
@@ -20,13 +20,14 @@ logging.basicConfig(
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 
-client = TelegramClient("anon", API_ID, API_HASH)
+db_schema = {"max_sub_count": int, "recent_size": int, "hints_suppressed": bool}
 
+client = TelegramClient("anon", API_ID, API_HASH)
 # this is rate limiter to avoid flooding
 # max_calls is number of outgoing messages / updates
 # period is in seconds
 # sweet spot is 15-20 / 1
-limiter = ratelimiter.RateLimiter(max_calls=1, period=3)
+limiter = ratelimiter.RateLimiter(max_calls=15, period=1)
 temp_storage = {
     "recently_deleted": deque(maxlen=100),
     "recently_updated": BoundedOrderedDict(100),
@@ -38,8 +39,6 @@ if not os.path.exists("./db.json"):
 
 
 # limiting
-
-
 @backoff.on_exception(
     backoff.expo, errors.FloodError, max_tries=100, jitter=backoff.random_jitter
 )
@@ -68,7 +67,7 @@ async def send_ratelim(user_id, message, is_album=False):
                 )
                 ids = list(map(lambda x: getattr(x, "id"), message))
             return ids
-        except errors.ForbiddenError:  # sub blacklisted the userchanel
+        except (errors.ForbiddenError):  # sub blacklisted the userchanel
             delete_sub(user_id)
 
 
@@ -126,12 +125,8 @@ async def broadcast(message, is_album=False):
     return ids_in_user_chat
 
 
-@client.on(
-    events.NewMessage(
-        func=validate_for_broadcast
-    )
-)
-async def new_channel_handeler(event):
+@client.on(events.NewMessage(func=validate_for_broadcast))
+async def new_channel_handler(event):
     print("Broadcasting!!1")
     con = db.get()
     if event.message.grouped_id is not None:
@@ -146,7 +141,7 @@ async def new_channel_handeler(event):
 
 
 @client.on(events.Album(func=validate_for_broadcast))
-async def album_channel_handeler(event):
+async def album_channel_handler(event):
     con = db.get()
     ids_in_user_chat = await broadcast(event, is_album=True)
     channel_message_ids = map(lambda m: m.id, event)
@@ -174,8 +169,8 @@ async def delete_channel_handler(event):
         if not message:
             await notify_failure(client, event.original_update.channel_id)
             continue
-        _, recipiants = message[0]
-        for user_id, user_message_id in recipiants.items():
+        _, recipients = message[0]
+        for user_id, user_message_id in recipients.items():
             await delete_ratelim(user_id, user_message_id)
         con["recent_messages"] = list(
             filter(lambda m: m[0] != message_id, con["recent_messages"])
@@ -183,9 +178,7 @@ async def delete_channel_handler(event):
     db.update(con)
 
 
-@client.on(
-    events.MessageEdited(func=validate_for_broadcast)
-)
+@client.on(events.MessageEdited(func=validate_for_broadcast))
 async def edit_channel_handler(event):
     global temp_storage
     print(event.stringify())
@@ -219,8 +212,9 @@ async def start_handler(event):
     if user_id not in con["subs"]:
         con["subs"].append(user_id)
         await send_ratelim(
-            user_id, "You are now subbed to this channel! Send /stop to unsubscribe"
-            "Warning: do not add me to your contacts and do not share your phone number with me"
+            user_id,
+            "You are now subbed to this channel! Send /stop to unsubscribe"
+            "Warning: do not add me to your contacts and do not share your phone number with me",
         )
         db.update(con)
     else:
@@ -232,8 +226,164 @@ async def stop_handler(event):
     user_id = event.original_update.user_id
     delete_sub(user_id)
     await send_ratelim(
-        user_id, "Farawell! If you want to sub back, write /start to start again"
+        user_id, "Farewell! If you want to sub back, write /start to start again"
     )
+
+
+@client.on(
+    events.NewMessage(pattern=r"^/remove_blacklisted_subs", func=bot_channel_command)
+)
+async def remove_ignoring_handler(event):
+    subs = db.get()["subs"]
+    me = await client.get_entity("me")
+    subs = db.get()["subs"]
+    deleted = 0
+    for i in subs:
+        sub = await client.get_entity(i)
+        if sub.status is None and sub.photo is None:
+            delete_sub(sub.id)
+            deleted += 1
+    await event.reply("<bot info>: @{} deleted {} chats!".format(me.username, deleted))
+
+
+@client.on(events.NewMessage(pattern=r"^/disable_hints", func=bot_channel_command))
+async def remove_ignoring_handler(event):
+    hints_suppressed = db.get()["hints_suppressed"]
+    me = await client.get_entity("me")
+    commands = event.message.raw_text.split()
+    print(commands)
+    if len(commands) != 2:
+        if not hints_suppressed:
+            await event.reply(
+                "<bot info> @{}:\n command_usage: /disable_hints @bot_user_name".format(
+                    me.username
+                )
+            )
+        return
+    target = commands[1]
+    target = target[1:]
+    print(target)
+    if target == me.username:
+        con = db.get()
+        con["hints_suppressed"] = True
+        hints_suppressed = True
+        db.update(con)
+        await event.reply(
+            "<bot info>:\n @{0}: I will be quiet now \n"
+            "use `/enable_hints @{0}` to enable me".format(me.username)
+        )
+
+
+@client.on(events.NewMessage(pattern=r"^/enable_hints", func=bot_channel_command))
+async def enable_hints_handler(event):
+    hints_suppressed = db.get()["hints_suppressed"]
+    me = await client.get_entity("me")
+    commands = event.message.raw_text.split()
+    if len(commands) != 2:
+        if not hints_suppressed:
+            await event.reply(
+                "<bot info> @{}:\n command_usage: /enable_hints @bot_user_name".format(
+                    me.username
+                )
+            )
+        return
+    target = commands[1]
+    target = target[1:]
+    if target == me.username:
+        con = db.get()
+        con["hints_suppressed"] = False
+        hints_suppressed = False
+        db.update(con)
+        await event.reply(
+            "<bot info>:\n @{}: I will be the one informing you".format(me.username)
+        )
+
+
+@client.on(events.NewMessage(pattern=r"^/sub_count", func=bot_channel_command))
+async def sub_cont_handler(event):
+    me = await client.get_entity("me")
+    con = db.get()
+    await event.reply(
+        "<bot info> @{}\n subs: {}/{}".format(
+            me.username, len(con["subs"]), con["max_sub_count"]
+        )
+    )
+
+
+@client.on(events.NewMessage(pattern=r"^/db_set", func=bot_channel_command))
+async def db_set_handler(event):
+    me = await client.get_entity("me")
+
+    async def error():
+        await event.reply(
+            "<bot info> @{}:\n command_usage: /db_set @bot_user_name field value\n"
+            "use @all to enforce db change to all of the bots!"
+            "\nschema:\n {}".format(me.username, pprint.pformat(db_schema))
+        )
+
+    hints_suppressed = db.get()["hints_suppressed"]
+    con = db.get()
+    commands = event.message.raw_text.split()
+    
+    if len(commands) != 4:
+        should_update = (me.username[1:] == commands[1] or commands[1] == "@all")
+        if not should_update:
+            if not hints_suppressed:
+                await error()
+            return
+    field, value = commands[2], commands[3]
+    if field not in db_schema:
+        return
+    if db_schema[field] is bool:
+        if value in ["True", "true"]:
+            value = True
+        elif value in ["False", "false"]:
+            value = False
+        else:
+            await error()
+            return
+    else:
+        try:
+            value = db_schema[field](value)
+        except:
+            await error()
+            return
+    if field == "max_sub_count" and len(con['subs']) >= value:
+        await event.reply(f"<bot info>: sub count is less than people subscribed! Can't update...")
+        return
+    con[field] = value
+    db.update(con)
+    await event.reply(f"<bot info>: updated @{me.username}'s db field {field} to value {value}")
+
+
+@client.on(events.NewMessage(pattern=r"^/db_get", func=bot_channel_command))
+async def db_get_handler(event):
+    con = db.get()
+    me = await client.get_entity("me")
+    con['subs'] = "hidden from log"
+    con['recent_messages'] = "hidden from log"
+    await event.reply("<bot info> @{} my db:\n {}".format(me.username, pprint.pformat(con)))
+
+
+
+
+@client.on(events.NewMessage(pattern=r"^/help", func=bot_channel_command))
+async def help_ignoring_handler(event):
+    hints_suppressed = db.get()["hints_suppressed"]
+    if hints_suppressed:
+        return
+    me = await client.get_entity("me")
+    event.reply(
+        f"<bot info>: @{me.username}\n"
+        "Admin Commands: \n"
+        "`/help` - show this list \n"
+        "`/enable_hints @bot_user_name` - enables verbose from the bot. Keep only one bot verbose\n"
+        "`/disable_hints @bot_user_name` - disables verbose from the bot. \n"
+        "`/remove_blacklisted_subs` - remove subs, who have blacklisted the bot"
+        "FAQ:\n"
+        "Multiple bots reply on `/help`, etc: use `/disable_hints` with their username"
+    )
+
 
 client.start()
 client.run_until_disconnected()

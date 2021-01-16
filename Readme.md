@@ -90,7 +90,7 @@ Then it will forward from this specific channel
 3. Add one or many bots to the channel, make them admins so they can send you notifications
 4. Configure them inside the group, use /help command for starters
 5. Start shitposting, the bots will forward all your posts. You can sub yourself to see
-6. Importand! add managing bot in order to manage the bots: 
+6. Important! add managing bot in order to manage the bots: 
 
 # Setting up multiple instances
 1. Clone it multiple times
