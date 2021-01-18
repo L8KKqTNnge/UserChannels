@@ -1,51 +1,10 @@
 from collections import OrderedDict
 from dotenv import load_dotenv
 import os
-import json
-from threading import RLock
-import fcntl
 
 load_dotenv()
 
 CHANNEL_NAME = os.getenv("CHANNEL_NAME")
-
-
-class DB:
-    def __init__(self):
-        self.lock = RLock()
-        self.path = os.getenv("DB_PATH")
-
-    def get(self):
-        with self.lock:
-            with open(self.path, "r") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
-                contents = json.load(f)
-                fcntl.flock(f, fcntl.LOCK_UN)
-                return contents
-
-    def update(self, val):
-        with self.lock:
-            with open(self.path, "r") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
-                base = json.load(f)
-                base.update(val)
-                fcntl.flock(f, fcntl.LOCK_UN)
-            with open(self.path, "w") as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
-                json.dump(base, f)
-                fcntl.flock(f, fcntl.LOCK_UN)
-
-
-db = DB()
-
-
-def delete_sub(user_id):
-    con = db.get()
-    if user_id in con["subs"]:
-        con["subs"].remove(user_id)
-        db.update(con)
-    else:
-        print("Warning: user to delete was not found!")
 
 
 async def notify_failure(client, channel_id):
