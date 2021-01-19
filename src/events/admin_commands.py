@@ -1,6 +1,6 @@
 import pprint
 from telethon import events
-from ..db import db, db_schema
+from ..db import db, db_schema, db_description
 from ..util import bot_channel_command
 
 
@@ -26,12 +26,12 @@ async def remove_ignoring_handler(event):
 )
 async def disable_hints_handler(event):
     client = event.client
-    hints_suppressed = db.get()["hints_suppressed"]
+    muted = db.get()["muted"]
     me = await client.get_entity("me")
     commands = event.message.raw_text.split()
     print(commands)
     if len(commands) != 2:
-        if not hints_suppressed:
+        if not muted:
             await event.reply(
                 "<bot info> @{}:\n command_usage: /disable_hints @bot_user_name".format(
                     me.username
@@ -43,8 +43,8 @@ async def disable_hints_handler(event):
     print(target)
     if target == me.username:
         con = db.get()
-        con["hints_suppressed"] = True
-        hints_suppressed = True
+        con["muted"] = True
+        muted = True
         db.update(con)
         await event.reply(
             "<bot info>:\n @{0}: I will be quiet now \n"
@@ -55,11 +55,11 @@ async def disable_hints_handler(event):
 @events.register(events.NewMessage(pattern=r"^/enable_hints", func=bot_channel_command))
 async def enable_hints_handler(event):
     client = event.client
-    hints_suppressed = db.get()["hints_suppressed"]
+    muted = db.get()["muted"]
     me = await client.get_entity("me")
     commands = event.message.raw_text.split()
     if len(commands) != 2:
-        if not hints_suppressed:
+        if not muted:
             await event.reply(
                 "<bot info> @{}:\n command_usage: /enable_hints @bot_user_name".format(
                     me.username
@@ -70,8 +70,8 @@ async def enable_hints_handler(event):
     target = target[1:]
     if target == me.username:
         con = db.get()
-        con["hints_suppressed"] = False
-        hints_suppressed = False
+        con["muted"] = False
+        muted = False
         db.update(con)
         await event.reply(
             "<bot info>:\n @{}: I will be the one informing you".format(me.username)
@@ -83,6 +83,7 @@ async def sub_cont_handler(event):
     client = event.client
     me = await client.get_entity("me")
     con = db.get()
+    
     await event.reply(
         "<bot info> @{}\n subs: {}/{}".format(
             me.username, len(con["subs"]), con["max_sub_count"]
@@ -102,19 +103,21 @@ async def db_set_handler(event):
             "\nschema:\n {}".format(me.username, pprint.pformat(db_schema))
         )
 
-    hints_suppressed = db.get()["hints_suppressed"]
+    muted = db.get()["muted"]
     con = db.get()
     commands = event.message.raw_text.split()
 
     if len(commands) != 4:
         should_update = me.username[1:] == commands[1] or commands[1] == "@all"
         if not should_update:
-            if not hints_suppressed:
+            if not muted:
                 await error()
             return
     field, value = commands[2], commands[3]
+
     if field not in db_schema:
         return
+    
     if db_schema[field] is bool:
         if value in ["True", "true"]:
             value = True
@@ -129,11 +132,13 @@ async def db_set_handler(event):
         except:
             await error()
             return
+    
     if field == "max_sub_count" and len(con["subs"]) >= value:
         await event.reply(
             f"<bot info>: sub count is less than people subscribed! Can't update..."
         )
         return
+    
     con[field] = value
     db.update(con)
     await event.reply(
@@ -146,27 +151,55 @@ async def db_get_handler(event):
     client = event.client
     con = db.get()
     me = await client.get_entity("me")
+
+    commands = event.message.raw_text.split()
     con["subs"] = "hidden from log"
     con["recent_messages"] = "hidden from log"
-    await event.reply(
-        "<bot info> @{} my db:\n {}".format(me.username, pprint.pformat(con))
-    )
+
+    if me.username[1:] == commands[1] or commands[1] == "@all":
+        await event.reply(
+            "<bot info> @{} my db:\n {}".format(me.username, pprint.pformat(con))
+        )
 
 
 @events.register(events.NewMessage(pattern=r"^/help", func=bot_channel_command))
 async def help_handler(event):
-    hints_suppressed = db.get()["hints_suppressed"]
+    muted = db.get()["muted"]
     client = event.client
-    if hints_suppressed:
+    if muted:
         return
+    
     me = await client.get_entity("me")
-    event.reply(
+    await event.reply(
         f"<bot info>: @{me.username}\n"
         "Admin Commands: \n"
         "`/help` - show this list \n"
-        "`/enable_hints @bot_user_name` - enables verbose from the bot. Keep only one bot verbose\n"
-        "`/disable_hints @bot_user_name` - disables verbose from the bot. \n"
-        "`/remove_blacklisted_subs` - remove subs, who have blacklisted the bot"
+        "`/unmute @bot_user_name` - enables verbose from the bot. Keep only one bot unmuted\n"
+        "`/mute @bot_user_name` - disables verbose from the bot \n"
+        "`/remove_blacklisted_subs` - remove subs, who have blacklisted the bot\n"
+        "`/db_help - display a help for settings / db\n"
         "FAQ:\n"
-        "Multiple bots reply on `/help`, etc: use `/disable_hints` with their username"
+        "Multiple bots reply on `/help` or other command: use `/mute` with their username"
+    )
+
+
+@events.register(events.NewMessage(pattern=r"^/db_help", func=bot_channel_command))
+async def db_help_handler(event):
+    muted = db.get()["muted"]
+    client = event.client
+    if muted:
+        return
+    
+    me = await client.get_entity("me")
+    db_fields = "\n".join([f"`{k}`" + " - " + v for k, v in db_description.items()])
+    await event.reply(
+        f"<bot info>: @{me.username}\n"
+        "Admin Commands: \n"
+        "Settings are stored here. Today the settings are the following:\n"
+        f"{db_fields}\n"
+        "\nCommands:\n"
+        "`/db_help` - show this list \n"
+        "`/db_set @bot_user_name field value` - sets a value to the bot. Use a username `@all` to set some value to all bots\n"
+        "`/db_get @bot_user_name` - gets the database from the bot. Use a username `@all` to set some value to all bots\n"
+        "Example: `/db_set @all max_sub_count 100`"
     )
