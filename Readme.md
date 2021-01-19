@@ -35,7 +35,7 @@ If you want to deploy it and know about docker, follow the docker install proces
 16. Run the application: `python .`
 17. To run in background: 'python . &'
 
-## Docker (Use this for serious deployment)
+## Docker (WIP might not work yet) (Use this for serious deployment)
 Attention: you have to be signed in to telegram in order to use docker. Run the application without docker first (i.e. with pyenv), it will ask you for credentials and create a .session file. After the file is created, you are good to go. 
 
 10. Install docker, (Optionally reboot):
@@ -72,8 +72,6 @@ sudo usermod -aG docker ${USER}
  Now reboot
 
 
-If you want to develop, the easiest way is to create a conda env
-
 ## Conda (if you have it installed / like it)
 10. Install anaconda from here (even on linux, download .sh): https://www.anaconda.com/products/individual
 10. On mac/linux: `chmod 777 ~/Downloads/Anaconda.sh && ./Anaconda.sh`, note file name might differ
@@ -90,14 +88,16 @@ Then it will forward from this specific channel
 3. Add one or many bots to the channel, make them admins so they can send you notifications
 4. Configure them inside the group, use /help command for starters
 5. Start shitposting, the bots will forward all your posts. You can sub yourself to see
-6. Important! add managing bot in order to manage the bots: 
+6. Use `/help` command while in the channel. It will not be broadcasted to the users.
+Bot messages are also not broadcasted.
 
 # Setting up multiple instances
 1. Clone it multiple times
 2. Ensure there are no overlapping logins
 3. Go to each folder
 4. Start the bot in background: `python . &`
-5. Thats it
+5. In channel type `/mute @bot_user_name` for all the bots EXCEPT ONE. 
+Only one bot should be unmuted, it will log verbose.
 
 # Troubleshooting / FAQ
 

@@ -1,4 +1,4 @@
-from ..globals import limited_client
+from ..globals import limited_client, client
 from ..util import notify_failure, validate_for_broadcast
 from ..db import db
 from telethon import events
@@ -7,7 +7,6 @@ from telethon import events
 @events.register(events.NewMessage(func=validate_for_broadcast))
 async def new_channel_handler(event):
     con = db.get()
-    print("new message!")
     channel_message_id = event.message.id
     
     if event.message.grouped_id is not None:
@@ -22,16 +21,19 @@ async def new_channel_handler(event):
     db.update(con)
 
 
-@events.register(events.Album(func=validate_for_broadcast))
+# for some reason events decorator does not register
+# @events.register(events.Album)
+# @client.on(events.Album(func=validate_for_broadcast))
 async def album_channel_handler(event):
     con = db.get()
-    ids_in_user_chat = await limited_client.broadcast(event, is_album=True)
-    channel_message_ids = map(lambda m: m.id, event)
-    
+    print("got an album!")
+    #print(event.stringify())
+    ids_in_user_chat = await limited_client.broadcast(event)
+    channel_message_ids = map(lambda m: m.id, event.messages)
+    # print("broadcasted", c) 
     for idx, id in enumerate(channel_message_ids):
         post_ids = {k: v[idx] for k, v in ids_in_user_chat.items()}
         con["recent_messages"].insert(0, [id, post_ids])
-    
     db.update(con)
 
 
@@ -65,19 +67,24 @@ async def delete_channel_handler(event):
 @events.register(events.MessageEdited(func=validate_for_broadcast))
 async def edit_channel_handler(event):
     client = event.client
-    temp_storage = limited_client["temp_storage"]
     con = db.get()
     message_id = event.message.id
     
-    temp_storage["recently_updated"][message_id] = event.message.raw_text
+    limited_client.temp_storage["recently_updated"][message_id] = event.message.raw_text
     
     message = list(filter(lambda m: m[0] == message_id, con["recent_messages"]))
+    # message 
     if not message:
-        channel_id = event.message.peer_id.channel_id
-        await notify_failure(client, channel_id)
-        return
+        # check if it is being broadcasted 
+        if message_id in limited_client.temp_storage['broadcast_in_process']:
+            return
+        else: # it has been broadcasted, but not found in the recent messages
+            channel_id = event.message.peer_id.channel_id
+            await notify_failure(client, channel_id)
+            return
+        
+    # message was broadcasted and found
     _, recipients = message[0]
-    
     for chat_id, user_message_id in recipients.items():
         chat_id = int(chat_id)
         await limited_client.edit(

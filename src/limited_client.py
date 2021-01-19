@@ -1,6 +1,6 @@
 import backoff
 from ratelimiter import RateLimiter
-from telethon import errors
+from telethon import errors, events
 from telethon.client import TelegramClient
 from collections import OrderedDict, deque
 from .db import db
@@ -40,12 +40,19 @@ class LimitedClientWrapper:
     async def send(self, user_id, message, is_album=False):
         async with self.limiter:
             try:
+
                 if not is_album:
                     if (
                         not isinstance(message, str)
                         and message.id in self.temp_storage["recently_deleted"]
                     ):
                         return []  # send nothing and return nothing
+                    if (
+                        not isinstance(message, str) and 
+                        message.id in self.temp_storage["recently_updated"]
+                    ):
+                        message.raw_text = self.temp_storage["recently_updated"][message.id]
+
                     message = await self.client.send_message(user_id, message)
                     ids = [message.id]
                 else:
@@ -90,32 +97,34 @@ class LimitedClientWrapper:
             except:
                 pass  # idk what to do, might add a callback later
 
-    async def broadcast(self, message, is_album=False):
-        print("Broadcasting this!", message.raw_text)
+    @backoff.on_exception(
+        backoff.expo, errors.FloodError, max_tries=100, jitter=backoff.random_jitter
+    )
+    async def broadcast(self, message):
+        channel_message_id = 0
+        ids_in_user_chat = 0
         try:
             con = db.get()
             ids_in_user_chat = {}
-            if not is_album:
-                channel_message_ids = [message.id]
-            else:
-                channel_message_ids = [m.id for m in message.messages]
-            for i in channel_message_ids:
-                self.temp_storage["broadcast_in_process"][i] = dict()
+            channel_message_id = message.id
+            self.temp_storage["broadcast_in_process"][channel_message_id] = dict()
             for chat_id in con["subs"]:
-                user_message_ids = await self.send(chat_id, message, is_album)
+                user_message_ids = await self.send(chat_id, message)
                 ids_in_user_chat[chat_id] = user_message_ids
-                for i in channel_message_ids:
-                    if i in self.temp_storage["recently_deleted"]:
-                        raise MessageDeleted
-                    else:
-                        self.temp_storage["broadcast_in_process"][i][chat_id] = user_message_ids
+                if channel_message_id in self.temp_storage["recently_deleted"]:
+                    raise MessageDeleted
+                else:
+                    self.temp_storage["broadcast_in_process"][channel_message_id][chat_id] = user_message_ids
         except MessageDeleted:
             for i in self.temp_storage['recently_deleted']:
                     if i in self.temp_storage["broadcast_in_process"]:
                         for chat_id, user_message_ids in self.temp_storage["broadcast_in_process"].items():
                             await self.delete(chat_id, user_message_ids)
         finally:
-            for i in channel_message_ids:
-                if i in self.temp_storage['broadcast_in_process']:
-                    del self.temp_storage["broadcast_in_process"][i]
+            if channel_message_id in self.temp_storage['broadcast_in_process']:
+                    del self.temp_storage["broadcast_in_process"][channel_message_id]
+            print(channel_message_id, ids_in_user_chat)
             return ids_in_user_chat
+    
+    async def broadcast_album(self, message):
+        pass
