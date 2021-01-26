@@ -1,9 +1,8 @@
 from json import load
 from .limited_client import LimitedClientWrapper
-from .db import db
 import ratelimiter
 import os
-from telethon import TelegramClient
+from telethon.sync import TelegramClient
 from dotenv import load_dotenv
 
 load_dotenv()

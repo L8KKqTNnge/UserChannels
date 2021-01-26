@@ -83,7 +83,7 @@ async def sub_cont_handler(event):
     client = event.client
     me = await client.get_entity("me")
     con = db.get()
-    
+
     await event.reply(
         "<bot info> @{}\n subs: {}/{}".format(
             me.username, len(con["subs"]), con["max_sub_count"]
@@ -117,7 +117,7 @@ async def db_set_handler(event):
 
     if field not in db_schema:
         return
-    
+
     if db_schema[field] is bool:
         if value in ["True", "true"]:
             value = True
@@ -132,13 +132,13 @@ async def db_set_handler(event):
         except:
             await error()
             return
-    
+
     if field == "max_sub_count" and len(con["subs"]) >= value:
         await event.reply(
             f"<bot info>: sub count is less than people subscribed! Can't update..."
         )
         return
-    
+
     con[field] = value
     db.update(con)
     await event.reply(
@@ -168,7 +168,7 @@ async def help_handler(event):
     client = event.client
     if muted:
         return
-    
+
     me = await client.get_entity("me")
     await event.reply(
         f"<bot info>: @{me.username}\n"
@@ -189,7 +189,7 @@ async def db_help_handler(event):
     client = event.client
     if muted:
         return
-    
+
     me = await client.get_entity("me")
     db_fields = "\n".join([f"`{k}`" + " - " + v for k, v in db_description.items()])
     await event.reply(

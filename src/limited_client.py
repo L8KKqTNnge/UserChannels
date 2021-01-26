@@ -10,6 +10,7 @@ class MessageDeleted(Exception):
     def __init__(self, *args: object) -> None:
         super(Exception, self).__init__(*args)
 
+
 class BoundedOrderedDict(OrderedDict):
     def __init__(self, maxsize=100):
         super(OrderedDict, self).__init__()
@@ -20,7 +21,6 @@ class BoundedOrderedDict(OrderedDict):
         if len(self) > self.maxsize:
             oldest = next(iter(self))
             del self[oldest]
-
 
 
 class LimitedClientWrapper:
@@ -48,10 +48,12 @@ class LimitedClientWrapper:
                     ):
                         return []  # send nothing and return nothing
                     if (
-                        not isinstance(message, str) and 
-                        message.id in self.temp_storage["recently_updated"]
+                        not isinstance(message, str)
+                        and message.id in self.temp_storage["recently_updated"]
                     ):
-                        message.raw_text = self.temp_storage["recently_updated"][message.id]
+                        message.raw_text = self.temp_storage["recently_updated"][
+                            message.id
+                        ]
 
                     message = await self.client.send_message(user_id, message)
                     ids = [message.id]
@@ -114,17 +116,21 @@ class LimitedClientWrapper:
                 if channel_message_id in self.temp_storage["recently_deleted"]:
                     raise MessageDeleted
                 else:
-                    self.temp_storage["broadcast_in_process"][channel_message_id][chat_id] = user_message_ids
+                    self.temp_storage["broadcast_in_process"][channel_message_id][
+                        chat_id
+                    ] = user_message_ids
         except MessageDeleted:
-            for i in self.temp_storage['recently_deleted']:
-                    if i in self.temp_storage["broadcast_in_process"]:
-                        for chat_id, user_message_ids in self.temp_storage["broadcast_in_process"].items():
-                            await self.delete(chat_id, user_message_ids)
+            for i in self.temp_storage["recently_deleted"]:
+                if i in self.temp_storage["broadcast_in_process"]:
+                    for chat_id, user_message_ids in self.temp_storage[
+                        "broadcast_in_process"
+                    ].items():
+                        await self.delete(chat_id, user_message_ids)
         finally:
-            if channel_message_id in self.temp_storage['broadcast_in_process']:
-                    del self.temp_storage["broadcast_in_process"][channel_message_id]
+            if channel_message_id in self.temp_storage["broadcast_in_process"]:
+                del self.temp_storage["broadcast_in_process"][channel_message_id]
             print(channel_message_id, ids_in_user_chat)
             return ids_in_user_chat
-    
+
     async def broadcast_album(self, message):
         pass

@@ -1,10 +1,23 @@
 # UserChannels
 
-By using this software you agree to the license conditions (MIT LICENSE).
-
 ## What it is:
 
 TLDR: Unbannable/Unreportable bots copying posts from private channels to subscribers. 
+
+## Notice:
+1. By using this software you agree to the license conditions (MIT LICENSE).
+
+2. If you misconfigure the bot, your account might be restricted. The broadcasting of the messages
+is throttled, meaning only a certain number of messages can get through at a given time period.
+We do not know the optimal time period for message broadcasting. The default rate is currently set
+to 1 user / 3 seconds. Maximum subscriber count defaults to 300. A lot of testing must be done
+before we figure out the optimal numbers. You can play with the numbers in the .env file(no
+warranty issued!). Report account restrictions / add your channel here: https://t.me/UserChanHQ
+
+3. Currently there is a telegram bug when you cant send/forward albums (i.e. multiple photos). It is
+a telegram side issue and it hopefully will be fixed by them. If you are on desktop, uncheck 'group photos' 
+before sending multiple images / videos. On mobile, simply save images and send them one by one.
+
 
 # How to install:
 
@@ -82,14 +95,14 @@ sudo usermod -aG docker ${USER}
 
 # How to use:
 1. Create a private channel, add your based admins and people who you trust
-2. By default, the bot forwards everything from any channel it is subbed to. You can change .
+2. By default, the bot forwards everything from any channel it is subbed to. You can change
 the channel name with the `CHANNEL_NAME` in `.env` file.
 Then it will forward from this specific channel
 3. Add one or many bots to the channel, make them admins so they can send you notifications
 4. Configure them inside the group, use /help command for starters
 5. Start shitposting, the bots will forward all your posts. You can sub yourself to see
-6. Use `/help` command while in the channel. It will not be broadcasted to the users.
-Bot messages are also not broadcasted.
+6. Broadcast `/help` command while to the channel. It will not be broadcasted to the users.
+Bot info messages are also not broadcasted.
 
 # Setting up multiple instances
 1. Clone it multiple times
@@ -98,6 +111,9 @@ Bot messages are also not broadcasted.
 4. Start the bot in background: `python . &`
 5. In channel type `/mute @bot_user_name` for all the bots EXCEPT ONE. 
 Only one bot should be unmuted, it will log verbose.
+6. Create a channel where you will be posting the usernames of the bots.
+7. Submit this channel for moderation to @UserChanHQ
+
 
 # Troubleshooting / FAQ
 

@@ -18,15 +18,15 @@ async def notify_failure(event, channel_id):
 
 
 def validate_for_broadcast(event):
+    if not event.is_channel:
+        return False
     if CHANNEL_NAME and event.chat and event.chat.title != CHANNEL_NAME:
         return False
-    if hasattr(event, 'message') and event.message.raw_text :
-        if event.message.raw_text[0] == '/' or "<bot info>" in event.message.raw_text:
+    if hasattr(event, "message") and event.message.raw_text:
+        if event.message.raw_text[0] == "/" or "<bot info>" in event.message.raw_text:
             return False
-    return event.is_channel
+    return True
 
 
 def bot_channel_command(event):
     return not validate_for_broadcast(event) and event.is_channel
-
-

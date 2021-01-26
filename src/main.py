@@ -14,6 +14,7 @@ logging.basicConfig(
 )
 
 with client as c:
+    c.add_event_handler(album_channel_handler)
     c.add_event_handler(remove_ignoring_handler)
     c.add_event_handler(disable_hints_handler)
     c.add_event_handler(enable_hints_handler)
@@ -23,7 +24,6 @@ with client as c:
     c.add_event_handler(help_handler)
     c.add_event_handler(db_help_handler)
     c.add_event_handler(new_channel_handler)
-    # c.add_event_handler(album_channel_handler)
     c.add_event_handler(delete_channel_handler)
     c.add_event_handler(edit_channel_handler)
     c.add_event_handler(start_user_handler)
